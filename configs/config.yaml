@@ -1,0 +1,44 @@
+# Run with: python -m qpd.train stage=<finetune|embed|head> [overrides]
+stage: head
+seed: 0
+device: auto            # auto | cuda | cpu
+
+data:
+  root: data
+  size: 128
+  batch_size: 64
+  num_workers: 2
+
+data_frac: 1.0          # fraction of the training set used by the head (Experiment 1)
+
+finetune:
+  epochs: 10
+  lr: 1e-4
+  weight_decay: 1e-4
+
+head: quantum           # logreg | mlp | quantum
+head_train:
+  epochs: 30
+  lr: 1e-2
+  batch_size: 32
+
+quantum:
+  n_qubits: 4           # Experiment 2
+  n_layers: 2           # Experiment 2
+  backend: local        # local (exact statevector, differentiable) | quantumrings
+  shots: 1024           # used by the quantumrings backend
+  eval_backend: local   # set to quantumrings to score the test set on the QuantumRings simulator
+
+paths:
+  artifacts: artifacts
+
+mlflow:
+  experiment: quantum-pneumonia
+  tracking_uri: sqlite:///mlflow.db
+
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}
+  sweep:
+    dir: multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}

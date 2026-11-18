@@ -1,0 +1,124 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{enumitem}
+\usepackage{xcolor}
+\usepackage{titlesec}
+\usepackage[hidelinks]{hyperref}
+
+\definecolor{navy}{HTML}{1F3A5F}
+\titleformat{\section}{\large\bfseries\color{navy}}{\thesection.}{0.5em}{}
+\setlist{itemsep=2pt, topsep=4pt}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+
+\title{\textbf{Hybrid Quantum-Classical Pneumonia Detection}\\[4pt]
+\large COSC 461/561 Project 2: Project Specifications}
+\author{Hasset Admasu \and Nathnael Abraham \and Andres Iniguez}
+\date{November 2026}
+
+\begin{document}
+\maketitle
+
+\section{Research Question}
+Can a variational quantum circuit, simulated with the QuantumRings SDK and used as the
+classification head on top of a finetuned CNN, match a classical head with the same number
+of trainable parameters for pneumonia detection on chest X-rays, and does it hold up better
+when training data is scarce?
+
+\section{Dataset}
+\begin{itemize}
+  \item \textbf{Source:} PneumoniaMNIST (MedMNIST v2), installed via \texttt{pip install medmnist}.
+  \item \textbf{Size:} 5,856 pediatric chest X-rays at $128\times128$ pixels, grayscale.
+  \item \textbf{Task:} binary classification, normal vs.\ pneumonia.
+  \item \textbf{Split:} official train / validation / test split; the test set is held out for final evaluation only.
+  \item \textbf{Known issue:} class imbalance (about 74\% pneumonia), handled with a class-weighted loss or balanced sampling.
+\end{itemize}
+
+\section{Exploratory Data Analysis}
+\begin{itemize}
+  \item Class distribution per split.
+  \item Sample image grid for each class.
+  \item Pixel intensity histograms by class.
+  \item Duplicate and corrupted image check.
+  \item t-SNE or UMAP of CNN embeddings colored by label.
+\end{itemize}
+
+\section{Preprocessing}
+\begin{itemize}
+  \item Resize to $128\times128$ and normalize pixel values.
+  \item Light augmentation on training data only: small rotations, translations, and brightness/contrast
+        jitter (no horizontal flips, since chest anatomy is asymmetric).
+\end{itemize}
+
+\section{Models}
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}l Y p{3.6cm}@{}}
+\toprule
+\textbf{Role} & \textbf{Architecture} & \textbf{Trainable components} \\
+\midrule
+Baseline 1 & Frozen ImageNet ResNet-18 features + logistic regression & Linear head \\
+Baseline 2 & Finetuned ResNet-18 + small MLP head, parameter-matched to the quantum head & CNN + MLP head \\
+Main approach & Finetuned ResNet-18 $\rightarrow$ linear projection to $n$ features $\rightarrow$ angle encoding
+  into $n$ qubits $\rightarrow$ variational circuit (RY/RZ rotations + CNOT ring, $L$ layers)
+  $\rightarrow$ Pauli-Z expectation $\rightarrow$ sigmoid & CNN, projection layer, circuit rotation angles \\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\noindent\textbf{Training procedure:} (1) finetune the CNN on the course GPU with a classical head;
+(2) freeze the CNN and cache embeddings; (3) train the projection layer and quantum circuit on the
+cached embeddings, with circuit gradients from the parameter-shift rule.
+
+\medskip
+\noindent\textbf{Quantum tooling:} QuantumRings SDK (\texttt{QuantumRingsLib} and/or
+\texttt{quantumrings-toolkit-qiskit}), circuits of 4 to 8 qubits. The API token is stored in an
+environment variable, never committed to the repository.
+
+\section{Controlled Experiments}
+\begin{center}
+\begin{tabularx}{\textwidth}{@{}p{3.2cm} p{2.8cm} Y p{3.3cm}@{}}
+\toprule
+\textbf{Experiment} & \textbf{Variable} & \textbf{Values} & \textbf{Held constant} \\
+\midrule
+Main comparison & Head type & Logistic regression, MLP, quantum & Data, CNN backbone, splits \\
+Change 1: data size & Fraction of training set & 1\%, 5\%, 25\%, 100\% & Test set, architecture \\
+Change 2: circuit capacity & Qubits $\times$ layers & Qubits $\{4,6,8\}$ $\times$ layers $\{1,2,4\}$ & MLP resized to equal parameter count \\
+Stretch: noise & Depolarizing noise rate & 0, 0.001, 0.01 & Best circuit configuration \\
+\bottomrule
+\end{tabularx}
+\end{center}
+Every setting is run with 3 random seeds; results report the mean and standard deviation.
+
+\section{Evaluation}
+\begin{itemize}
+  \item \textbf{Primary metric:} AUROC (robust to class imbalance).
+  \item \textbf{Secondary metrics:} F1 score, sensitivity (recall on pneumonia), specificity, accuracy, training time.
+  \item \textbf{Figures:} learning curves vs.\ training data size, AUROC heatmap over qubits $\times$ layers,
+        ROC curves, confusion matrices, and results tables per experiment.
+\end{itemize}
+
+\section{Engineering Requirements}
+\begin{itemize}
+  \item \textbf{Configuration:} Hydra or YAML configs; each run is launched by one command, e.g.\
+        \texttt{python train.py head=quantum qubits=6 data\_frac=0.05 seed=1}.
+  \item \textbf{Experiment tracking:} MLflow or Weights \& Biases logging parameters, metrics, and plots for every run.
+  \item \textbf{Reproducibility:} fixed seeds, pinned dependencies, Makefile targets (\texttt{data}, \texttt{train}, \texttt{eval}).
+  \item \textbf{Repository layout:} \texttt{src/data}, \texttt{src/models}, \texttt{src/train.py},
+        \texttt{src/evaluate.py}, \texttt{configs/}, \texttt{notebooks/eda.ipynb}, \texttt{tests/}.
+  \item \textbf{Testing and CI:} pytest checks (circuit output shape, equal parameter counts across heads,
+        no train/test leakage) run by GitHub Actions on each push.
+  \item \textbf{Demo:} FastAPI or Gradio inference endpoint packaged with a Dockerfile.
+  \item \textbf{Documentation:} README with setup and run instructions, plus a model card stating intended
+        use and that the model is not a clinical tool.
+\end{itemize}
+
+\section{Deliverables}
+\begin{itemize}
+  \item Progress presentation (10 minutes), due November 30, 5:30 PM.
+  \item Final 5 to 7 page PDF report and GitHub repository, due December 11, 11:59 PM.
+\end{itemize}
+
+\end{document}
